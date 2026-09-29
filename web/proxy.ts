@@ -20,6 +20,18 @@ export async function proxy(request: NextRequest) {
     },
   )
 
+  const code = request.nextUrl.pathname === '/' ? request.nextUrl.searchParams.get('code') : null
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.search = ''
+      const redirectResponse = NextResponse.redirect(redirectUrl)
+      response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie))
+      return redirectResponse
+    }
+  }
+
   const { data: { user } } = await supabase.auth.getUser()
   const isLoginPage = request.nextUrl.pathname === '/login'
   const redirectPath = user ? (isLoginPage ? '/' : null) : (isLoginPage ? null : '/login')
