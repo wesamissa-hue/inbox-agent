@@ -1,0 +1,131 @@
+{
+  "name": "Inbox Agent (reads text + images, replies to the inbox)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inbox-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Inbox Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-160, 300],
+      "webhookId": "inbox-agent"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/get_conversation_context",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"p_conversation_id\": $json.body.conversation_id } }}",
+        "options": {}
+      },
+      "id": "node-getcontext",
+      "name": "Get Conversation Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [60, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Turn the conversation into an OpenAI-style chat request.\n// If the latest user message has an image, we attach it so the model can SEE it.\nconst ctx = $json;\nconst convo = ctx.conversation || {};\nconst history = Array.isArray(ctx.messages) ? ctx.messages : [];\n\nconst chat = [\n  {\n    role: 'system',\n    content: 'You are a friendly, concise support agent replying inside a team inbox. Answer helpfully in 1-4 short sentences. If the customer attached an image, use what you see in it to help answer.'\n  }\n];\n\nfor (const m of history) {\n  if (m.role === 'agent') {\n    chat.push({ role: 'assistant', content: m.body || '' });\n  } else {\n    const parts = [];\n    if (m.body) parts.push({ type: 'text', text: m.body });\n    if (m.image_url) parts.push({ type: 'image_url', image_url: { url: m.image_url } });\n    chat.push({ role: 'user', content: parts.length ? parts : (m.body || '') });\n  }\n}\n\nconst payload = {\n  model: $env.LLM_MODEL || 'gpt-4o-mini',\n  messages: chat,\n  max_tokens: 400,\n  temperature: 0.4\n};\n\nreturn [{ json: { payload, conversation_id: convo.id || null } }];"
+      },
+      "id": "node-buildprompt",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_API_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.LLM_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Build Prompt').item.json.payload }}",
+        "options": {}
+      },
+      "id": "node-callmodel",
+      "name": "Call Model (with vision)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Pull the reply text out of the model response (OpenAI-style).\nconst res = $json;\nlet reply = '';\ntry {\n  reply = res.choices[0].message.content;\n} catch (e) {\n  reply = '';\n}\nif (Array.isArray(reply)) {\n  reply = reply.map((p) => (p && p.text) ? p.text : '').join(' ').trim();\n}\nif (!reply) {\n  reply = 'Sorry, I could not generate a reply just now. A teammate will follow up.';\n}\nreturn [{ json: { reply } }];"
+      },
+      "id": "node-extract",
+      "name": "Extract Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/post_agent_reply",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"p_conversation_id\": $('Build Prompt').item.json.conversation_id, \"p_body\": $json.reply } }}",
+        "options": {}
+      },
+      "id": "node-postreply",
+      "name": "Post Reply To Inbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"ok\": true } }}",
+        "options": {}
+      },
+      "id": "node-respond",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1160, 300]
+    }
+  ],
+  "connections": {
+    "Inbox Webhook": { "main": [[{ "node": "Get Conversation Context", "type": "main", "index": 0 }]] },
+    "Get Conversation Context": { "main": [[{ "node": "Build Prompt", "type": "main", "index": 0 }]] },
+    "Build Prompt": { "main": [[{ "node": "Call Model (with vision)", "type": "main", "index": 0 }]] },
+    "Call Model (with vision)": { "main": [[{ "node": "Extract Reply", "type": "main", "index": 0 }]] },
+    "Extract Reply": { "main": [[{ "node": "Post Reply To Inbox", "type": "main", "index": 0 }]] },
+    "Post Reply To Inbox": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}
