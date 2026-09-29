@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabaseClient'
 import Composer from '../components/Composer'
 
@@ -24,6 +26,7 @@ type Message = {
 }
 
 export default function Page() {
+  const router = useRouter()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -92,19 +95,29 @@ export default function Page() {
     }
   }
 
+  async function signOut() {
+    await supabase.auth.signOut()
+    router.replace('/login')
+    router.refresh()
+  }
+
   const active = conversations.find((c) => c.id === activeId) || null
 
   return (
     <div className="app">
       <aside className="sidebar">
         <h1>Team Inbox</h1>
-        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
-          <button className="btn secondary" style={{ height: 36, padding: '0 12px' }} onClick={seedDemo}>
+        <div className="dashboard-nav">
+          <Link href="/agent-dashboard">Agent dashboard <span aria-hidden="true">&rarr;</span></Link>
+          <button className="sign-out" onClick={signOut}>Sign out</button>
+        </div>
+        <div className="sidebar-actions">
+          <button className="btn secondary" onClick={seedDemo}>
             + New demo chat
           </button>
         </div>
         <div className="convo-list">
-          {loading && <div className="empty">Loading...</div>}
+          {loading && <div className="empty loading">Loading...</div>}
           {!loading && conversations.length === 0 && (
             <div className="empty">No conversations yet.<br />Click “+ New demo chat” to start.</div>
           )}
@@ -131,7 +144,9 @@ export default function Page() {
         {!active && <div className="empty">Pick a conversation to see the messages.</div>}
         {active && (
           <>
-            <div className="thread-header">{active.contact} · <span style={{ color: 'var(--muted)', fontWeight: 400 }}>{active.channel}</span></div>
+            <div className="thread-header">
+              <div className="thread-title">{active.contact}<span>{active.channel}</span></div>
+            </div>
             <div className="messages">
               {messages.map((m) => (
                 <div key={m.id} className={'row ' + m.role}>
