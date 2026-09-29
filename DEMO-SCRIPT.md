@@ -10,5 +10,6 @@ agent reads incoming messages and replies directly in the conversation.
 4. **0:50** Send: “Hi, I placed an order yesterday. Could you check whether it
    has shipped?”
 5. **1:10** Show the AI agent's reply arriving in the same thread.
-6. **1:35** Open Agent dashboard and point out recent decisions and handoffs.
+6. **1:35** Using the pre-provisioned operator account with the trusted admin
+   role, open Agent dashboard and point out recent decisions and handoffs.
 7. **1:55** Close with: “Next, I’d add team-specific inbox permissions.”

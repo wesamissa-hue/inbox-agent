@@ -20,8 +20,7 @@ export default function Composer({ conversationId }: { conversationId: string })
         const path = conversationId + '/' + Date.now() + '-' + file.name
         const up = await supabase.storage.from('inbox-images').upload(path, file)
         if (up.error) throw up.error
-        const pub = supabase.storage.from('inbox-images').getPublicUrl(path)
-        imageUrl = pub.data.publicUrl
+        imageUrl = 'storage://' + path.split('/').map(encodeURIComponent).join('/')
       }
 
       // 2) Save the user's message.

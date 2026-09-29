@@ -34,7 +34,16 @@ export async function proxy(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
   const isLoginPage = request.nextUrl.pathname === '/login'
-  const redirectPath = user ? (isLoginPage ? '/' : null) : (isLoginPage ? null : '/login')
+  const isDashboardPage = request.nextUrl.pathname === '/agent-dashboard'
+    || request.nextUrl.pathname.startsWith('/agent-dashboard/')
+  const isDashboardAdmin = user?.app_metadata?.role === 'admin'
+  const redirectPath = !user && !isLoginPage
+    ? '/login'
+    : user && isLoginPage
+      ? '/'
+      : user && isDashboardPage && !isDashboardAdmin
+        ? '/'
+        : null
 
   if (redirectPath) {
     const redirectUrl = request.nextUrl.clone()

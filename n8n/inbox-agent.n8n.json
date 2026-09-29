@@ -12,7 +12,10 @@
       "name": "Inbox Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [-160, 300],
+      "position": [
+        -160,
+        300
+      ],
       "webhookId": "inbox-agent"
     },
     {
@@ -22,9 +25,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -36,18 +48,67 @@
       "name": "Get Conversation Context",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
-      "position": [60, 300]
+      "position": [
+        60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/storage/v1/object/sign/inbox-images",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"expiresIn\": 3600, \"paths\": $json.messages.filter((message) => message.image_url).map((message) => String(message.image_url).startsWith('storage://') ? String(message.image_url).slice('storage://'.length).split('/').map((part) => decodeURIComponent(part)).join('/') : String(message.image_url)) } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "signed_images"
+            }
+          }
+        }
+      },
+      "id": "node-signimages",
+      "name": "Sign Private Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        280,
+        300
+      ],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Turn the conversation into an OpenAI-style chat request.\n// If the latest user message has an image, we attach it so the model can SEE it.\nconst ctx = $json;\nconst convo = ctx.conversation || {};\nconst history = Array.isArray(ctx.messages) ? ctx.messages : [];\n\nconst chat = [\n  {\n    role: 'system',\n    content: 'You are a friendly, concise support agent replying inside a team inbox. Answer helpfully in 1-4 short sentences. If the customer attached an image, use what you see in it to help answer.'\n  }\n];\n\nfor (const m of history) {\n  if (m.role === 'agent') {\n    chat.push({ role: 'assistant', content: m.body || '' });\n  } else {\n    const parts = [];\n    if (m.body) parts.push({ type: 'text', text: m.body });\n    if (m.image_url) parts.push({ type: 'image_url', image_url: { url: m.image_url } });\n    chat.push({ role: 'user', content: parts.length ? parts : (m.body || '') });\n  }\n}\n\nconst payload = {\n  model: $env.LLM_MODEL || 'gpt-4o-mini',\n  messages: chat,\n  max_tokens: 400,\n  temperature: 0.4\n};\n\nreturn [{ json: { payload, conversation_id: convo.id || null } }];"
+        "jsCode": "// Turn the conversation into an OpenAI-style chat request.\n// Private image paths are signed by the upstream HTTP Request node.\nconst ctx = $json;\nconst convo = ctx.conversation || {};\nconst history = Array.isArray(ctx.messages) ? ctx.messages : [];\nlet signedResponse = [];\ntry {\n  signedResponse = typeof ctx.signed_images === 'string' ? JSON.parse(ctx.signed_images) : (ctx.signed_images || []);\n} catch {\n  signedResponse = [];\n}\nconst normalizePath = (value) => {\n  const storedPath = String(value || '').split('?')[0];\n  const objectPath = storedPath.startsWith('storage://') ? storedPath.slice('storage://'.length) : storedPath;\n  return objectPath.split('/').map((part) => decodeURIComponent(part)).join('/');\n};\nconst signedImages = new Map((Array.isArray(signedResponse) ? signedResponse : [])\n  .filter((item) => item && item.path && (item.signedUrl || item.signedURL))\n  .map((item) => [normalizePath(item.path), item.signedUrl || item.signedURL]));\n\nconst chat = [\n  {\n    role: 'system',\n    content: 'You are a friendly, concise support agent replying inside a team inbox. Answer helpfully in 1-4 short sentences. If the customer attached an image, use what you see in it to help answer.'\n  }\n];\n\nfor (const m of history) {\n  if (m.role === 'agent') {\n    chat.push({ role: 'assistant', content: m.body || '' });\n  } else {\n    const parts = [];\n    if (m.body) parts.push({ type: 'text', text: m.body });\n    if (m.image_url) {\n      const signedPath = signedImages.get(normalizePath(m.image_url));\n      if (signedPath) {\n        const signedUrl = signedPath.startsWith('http')\n          ? signedPath\n          : $env.SUPABASE_URL + '/storage/v1' + (signedPath.startsWith('/') ? '' : '/') + signedPath;\n        parts.push({ type: 'image_url', image_url: { url: signedUrl } });\n      } else {\n        parts.push({ type: 'text', text: '[Image unavailable]' });\n      }\n    }\n    chat.push({ role: 'user', content: parts.length ? parts : (m.body || '') });\n  }\n}\n\nconst payload = {\n  model: $env.LLM_MODEL || 'gpt-4o-mini',\n  messages: chat,\n  max_tokens: 400,\n  temperature: 0.4\n};\n\nreturn [{ json: { payload, conversation_id: convo.id || null } }];"
       },
       "id": "node-buildprompt",
       "name": "Build Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [280, 300]
+      "position": [
+        500,
+        300
+      ]
     },
     {
       "parameters": {
@@ -56,8 +117,14 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $env.LLM_API_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.LLM_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -69,7 +136,10 @@
       "name": "Call Model (with vision)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
-      "position": [500, 300]
+      "position": [
+        720,
+        300
+      ]
     },
     {
       "parameters": {
@@ -80,7 +150,10 @@
       "name": "Extract Reply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [720, 300]
+      "position": [
+        940,
+        300
+      ]
     },
     {
       "parameters": {
@@ -89,9 +162,18 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
@@ -103,7 +185,10 @@
       "name": "Post Reply To Inbox",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
-      "position": [940, 300]
+      "position": [
+        1160,
+        300
+      ]
     },
     {
       "parameters": {
@@ -115,17 +200,93 @@
       "name": "Respond OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [1160, 300]
+      "position": [
+        1380,
+        300
+      ]
     }
   ],
   "connections": {
-    "Inbox Webhook": { "main": [[{ "node": "Get Conversation Context", "type": "main", "index": 0 }]] },
-    "Get Conversation Context": { "main": [[{ "node": "Build Prompt", "type": "main", "index": 0 }]] },
-    "Build Prompt": { "main": [[{ "node": "Call Model (with vision)", "type": "main", "index": 0 }]] },
-    "Call Model (with vision)": { "main": [[{ "node": "Extract Reply", "type": "main", "index": 0 }]] },
-    "Extract Reply": { "main": [[{ "node": "Post Reply To Inbox", "type": "main", "index": 0 }]] },
-    "Post Reply To Inbox": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+    "Inbox Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Conversation Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Conversation Context": {
+      "main": [
+        [
+          {
+            "node": "Sign Private Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Private Images": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Model (with vision)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Model (with vision)": {
+      "main": [
+        [
+          {
+            "node": "Extract Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Reply": {
+      "main": [
+        [
+          {
+            "node": "Post Reply To Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Reply To Inbox": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "active": false
 }

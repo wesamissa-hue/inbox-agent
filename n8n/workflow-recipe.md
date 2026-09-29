@@ -10,19 +10,24 @@ Here is what each node does, in plain language.
    `get_conversation_context`. This is the agent's *read* door: it gets the
    conversation plus the last 20 messages, including any image URL.
 
-3. **Build Prompt** — turns that history into a chat request. If the newest
-   user message has an image, it is attached as an `image_url` part so the
-   model can actually **see** it.
+3. **Sign Private Images** — the HTTP Request node batches image object paths
+   through Supabase Storage and places the short-lived signed URLs in the
+   `signed_images` output field. It uses the existing n8n `SUPABASE_URL` and
+   `SUPABASE_SERVICE_KEY` variables; the service key never reaches the browser.
 
-4. **Call Model (with vision)** — sends the request to your AI provider and
+4. **Build Prompt** — turns the conversation and signing response into an
+   OpenAI-style chat request. Signed image URLs are added as `image_url` parts
+   so the model can **see** the images.
+
+5. **Call Model (with vision)** — sends the request to your AI provider and
    gets an answer back. Works with any OpenAI-style endpoint.
 
-5. **Extract Reply** — pulls the reply text out of the response.
+6. **Extract Reply** — pulls the reply text out of the response.
 
-6. **Post Reply To Inbox** — calls your database function `post_agent_reply`.
+7. **Post Reply To Inbox** — calls your database function `post_agent_reply`.
    This is the agent's *write* door: it drops the answer into the thread.
 
-7. **Respond OK** — tells the inbox “got it.” The reply itself appears in the
+8. **Respond OK** — tells the inbox “got it.” The reply itself appears in the
    inbox on its own, thanks to realtime.
 
 ## Environment variables to set in n8n

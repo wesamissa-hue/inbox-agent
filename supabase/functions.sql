@@ -55,5 +55,7 @@ end;
 $$;
 
 -- Who is allowed to call these. The agent uses the service_role key.
-grant execute on function public.get_conversation_context(uuid) to anon, authenticated, service_role;
-grant execute on function public.post_agent_reply(uuid, text)   to anon, authenticated, service_role;
+revoke all on function public.get_conversation_context(uuid) from public, anon, authenticated;
+revoke all on function public.post_agent_reply(uuid, text) from public, anon, authenticated;
+grant execute on function public.get_conversation_context(uuid) to service_role;
+grant execute on function public.post_agent_reply(uuid, text) to service_role;
