@@ -4,8 +4,11 @@ import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabaseClient'
+import LanguageSwitcher from '../../components/LanguageSwitcher'
+import { useLanguage } from '../../components/LanguageProvider'
 
 export default function LoginPage() {
+  const { t } = useLanguage()
   const router = useRouter()
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
@@ -22,11 +25,11 @@ export default function LoginPage() {
     setSuccess(null)
 
     if (signingUp && password.length < 8) {
-      setError('Use a password with at least 8 characters.')
+      setError(t('passwordLengthError'))
       return
     }
     if (signingUp && password !== confirmPassword) {
-      setError('The passwords do not match.')
+      setError(t('passwordMismatch'))
       return
     }
 
@@ -41,13 +44,13 @@ export default function LoginPage() {
         if (signUpError) {
           const message = signUpError.message.toLowerCase()
           if (message.includes('already registered') || message.includes('already exists')) {
-            setError('An account may already use this email. Try signing in instead.')
+            setError(t('accountExistsError'))
           } else if (message.includes('password')) {
-            setError('Your password does not meet the requirements. Choose a stronger password.')
+            setError(t('signupPasswordError'))
           } else if (message.includes('rate limit') || message.includes('too many')) {
-            setError('Too many attempts. Wait a moment, then try again.')
+            setError(t('authRateLimitError'))
           } else {
-            setError('We could not create your account. Check your details and try again.')
+            setError(t('signupError'))
           }
           return
         }
@@ -58,23 +61,21 @@ export default function LoginPage() {
           return
         }
 
-        setSuccess('If registration was accepted, a confirmation link is on its way. Confirm your email, then sign in here.')
+        setSuccess(t('confirmationNotice'))
         return
       }
 
       const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
       if (signInError) {
         const message = signInError.message.toLowerCase()
-        setError(message.includes('email not confirmed')
-          ? 'Confirm your email address before signing in.'
-          : 'Invalid email or password. Please try again.')
+        setError(message.includes('email not confirmed') ? t('emailUnconfirmed') : t('signinError'))
         return
       }
 
       router.replace('/')
       router.refresh()
     } catch {
-      setError('Unable to reach authentication. Check your connection and try again.')
+      setError(t('authConnectionError'))
     } finally {
       setSubmitting(false)
     }
@@ -90,12 +91,15 @@ export default function LoginPage() {
   return (
     <main className="login-shell">
       <section className="login-panel" aria-labelledby="login-title">
-        <Link className="login-brand" href="/">Team Inbox</Link>
-        <h1 id="login-title">{signingUp ? 'Create your account' : 'Sign in'}</h1>
-        <p className="login-description">{signingUp ? 'Create an account to access your team workspace.' : 'Use your team account to continue.'}</p>
+        <div className="login-panel-top">
+          <Link className="login-brand" href="/"><img className="brand-mark" src="/icon.png" alt="" width="27" height="27" />{t('brand')}</Link>
+          <LanguageSwitcher />
+        </div>
+        <h1 id="login-title">{signingUp ? t('createAccountTitle') : t('login')}</h1>
+        <p className="login-description">{signingUp ? t('signupDescription') : t('loginDescription')}</p>
         <form className="login-form" onSubmit={handleSubmit}>
           <label>
-            Email
+            {t('email')}
             <input
               type="email"
               autoComplete="email"
@@ -105,7 +109,7 @@ export default function LoginPage() {
             />
           </label>
           <label>
-            Password
+            {t('password')}
             <input
               type="password"
               autoComplete={signingUp ? 'new-password' : 'current-password'}
@@ -117,7 +121,7 @@ export default function LoginPage() {
           </label>
           {signingUp && (
             <label>
-              Confirm password
+              {t('confirmPassword')}
               <input
                 type="password"
                 autoComplete="new-password"
@@ -131,12 +135,12 @@ export default function LoginPage() {
           {error && <p className="login-error" role="alert">{error}</p>}
           {success && <p className="login-success" role="status">{success}</p>}
           <button className="btn login-submit" type="submit" disabled={submitting}>
-            {submitting ? (signingUp ? 'Creating account...' : 'Signing in...') : (signingUp ? 'Create account' : 'Sign in')}
+            {submitting ? (signingUp ? t('creatingAccount') : t('signingIn')) : (signingUp ? t('signup') : t('login'))}
           </button>
         </form>
         <p className="login-mode-switch">
-          {signingUp ? 'Already have an account?' : 'New to Team Inbox?'}
-          <button type="button" onClick={switchMode}>{signingUp ? 'Sign in' : 'Create account'}</button>
+          {signingUp ? t('alreadyAccount') : t('newToProduct')}
+          <button type="button" onClick={switchMode}>{signingUp ? t('useSignin') : t('useSignup')}</button>
         </p>
       </section>
     </main>

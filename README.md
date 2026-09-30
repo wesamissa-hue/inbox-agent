@@ -22,7 +22,10 @@ inbox-agent/
    project, back it up and apply
    `supabase/migrations/20260929_user_conversation_isolation.sql` instead of
    rerunning the fresh-install schema. Follow the ownership backfill steps
-   below before making `user_id` non-null.
+   below before making `user_id` non-null, then apply
+   `supabase/migrations/20260930_pro_inbox_workspace.sql`. Apply
+   `supabase/migrations/20260930_conversation_summary.sql` manually to add the
+   display-only summary column; the app and workflow never run migrations.
 2. **Agent** — update the existing workflow with the **Sign Private Images**
    HTTP Request node and revised **Build Prompt** node from
    `n8n/inbox-agent.n8n.json`. Keep its webhook URL and downstream model/reply
@@ -36,8 +39,8 @@ inbox-agent/
    npm install
    npm run dev
    ```
-   Open http://localhost:3000, create an account or sign in, click “+ New demo
-   chat”, send a message or an image, and watch the agent reply on its own.
+   Open http://localhost:3000, create an account or sign in, click “New chat”,
+   send a message or an image, and watch the agent reply on its own.
 4. **Deploy** — push `web/` to GitHub, import into Vercel, add the three
    `NEXT_PUBLIC_` variables and the server-only `SUPABASE_SERVICE_KEY`, then
    deploy. Set the Supabase Auth Site URL to the deployed app URL.
@@ -67,6 +70,16 @@ where id = '<trusted-admin-user-uuid>';
 Never prefix `SUPABASE_SERVICE_KEY` with `NEXT_PUBLIC_` or place it in
 client-side code. Keep local values in the ignored `web/.env.local` and
 deployment values in Vercel's server-side environment settings.
+
+### Pro Inbox Workspace
+
+The inbox includes a user/browser-scoped accent preference, pinned
+conversations, deterministic priority labels, and private notes stored apart
+from customer messages. Fresh installs receive these objects from
+`supabase/schema.sql`; existing installs apply the additive Pro Inbox migration
+after conversation ownership has been migrated and backfilled. Note RLS checks
+both the authenticated note owner and the owner of its conversation. Notes are
+not included in messages or the agent conversation-context RPC.
 
 ### Existing Conversation Backfill
 

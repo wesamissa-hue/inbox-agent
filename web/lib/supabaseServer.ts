@@ -34,7 +34,7 @@ export async function getAgentDashboardData() {
   try {
     const supabase = createServerSupabase()
     const since = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString()
-    const [totalResult, lowCountResult, humanCountResult, recentResult, lowResult, humanResult, dailyResult] = await Promise.all([
+    const [totalResult, lowCountResult, humanCountResult, recentResult, lowResult, humanResult, dailyResult, needsHumanResult, humanDecisionResult] = await Promise.all([
       supabase.from('agent_decisions').select('id', { count: 'exact', head: true }),
       supabase.from('agent_decisions').select('id', { count: 'exact', head: true }).lt('confidence', 0.5),
       supabase.from('agent_decisions').select('id', { count: 'exact', head: true }).eq('flag_human', true),
@@ -42,11 +42,39 @@ export async function getAgentDashboardData() {
       supabase.from('agent_decisions').select(decisionColumns).lt('confidence', 0.5).order('created_at', { ascending: false }).limit(8),
       supabase.from('agent_decisions').select(decisionColumns).eq('flag_human', true).order('created_at', { ascending: false }).limit(8),
       supabase.from('agent_decisions').select('created_at,confidence,flag_human').gte('created_at', since).order('created_at', { ascending: false }).range(0, 999),
+      supabase.from('conversations').select('id,contact,updated_at').eq('status', 'needs_human').order('updated_at', { ascending: false }).limit(100),
+      supabase.from('agent_decisions').select('conversation_id,reason,created_at').eq('flag_human', true).not('conversation_id', 'is', null).order('created_at', { ascending: false }).limit(100),
     ])
 
-    const failed = [totalResult, lowCountResult, humanCountResult, recentResult, lowResult, humanResult, dailyResult]
+    const failed = [totalResult, lowCountResult, humanCountResult, recentResult, lowResult, humanResult, dailyResult, needsHumanResult, humanDecisionResult]
       .find((result) => result.error)
     if (failed?.error) throw failed.error
+
+    const humanDecisions = humanDecisionResult.data || []
+    const attentionIds = [...new Set([
+      ...(needsHumanResult.data || []).map((conversation) => conversation.id),
+      ...humanDecisions.map((decision) => decision.conversation_id).filter((id): id is string => Boolean(id)),
+    ])]
+    const reasonByConversation = new Map<string, string>()
+    for (const decision of humanDecisions) {
+      if (decision.conversation_id && decision.reason?.trim() && !reasonByConversation.has(decision.conversation_id)) {
+        reasonByConversation.set(decision.conversation_id, decision.reason.trim())
+      }
+    }
+    let humanAttention: Array<{ id: string; contact: string; updated_at: string; reason: string | null }> = []
+    if (attentionIds.length > 0) {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('id,contact,updated_at')
+        .in('id', attentionIds)
+        .order('updated_at', { ascending: false })
+        .limit(25)
+      if (error) throw error
+      humanAttention = (data || []).map((conversation) => ({
+        ...conversation,
+        reason: reasonByConversation.get(conversation.id) || null,
+      }))
+    }
 
     const dailyRows = [...(dailyResult.data || [])] as Array<Pick<Decision, 'created_at' | 'confidence' | 'flag_human'>>
     for (let offset = 1000; dailyRows.length % 1000 === 0 && dailyRows.length > 0; offset += 1000) {
@@ -89,6 +117,7 @@ export async function getAgentDashboardData() {
       recent: (recentResult.data || []) as Decision[],
       lowConfidence: (lowResult.data || []) as Decision[],
       humanFlagged: (humanResult.data || []) as Decision[],
+      humanAttention,
       daily: dailyRows,
     }
   } catch (error) {
@@ -101,6 +130,7 @@ export async function getAgentDashboardData() {
       recent: [] as Decision[],
       lowConfidence: [] as Decision[],
       humanFlagged: [] as Decision[],
+      humanAttention: [] as Array<{ id: string; contact: string; updated_at: string; reason: string | null }>,
       daily: [] as Array<Pick<Decision, 'created_at' | 'confidence' | 'flag_human'>>,
     }
   }

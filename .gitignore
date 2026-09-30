@@ -13,3 +13,5 @@ out/
 # misc
 .DS_Store
 *.log
+
+supabase/.temp/

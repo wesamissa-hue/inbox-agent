@@ -43,8 +43,16 @@ the code — keep secrets out of the workflow.
 | `LLM_API_KEY` | `sk-...` | Your model provider key |
 | `LLM_MODEL` | `gpt-4o-mini` | A **vision-capable** model |
 
-> Use a model that can read images (for example `gpt-4o-mini`). A text-only
-> model will simply ignore the picture.
+## Separate post-reply conversation summary
+
+After `Post Reply To Inbox`, the workflow responds to the inbox first, then
+runs a separate summary branch. It summarizes the recent conversation history
+plus the new agent reply, validates a one- or two-sentence result, and patches
+only `conversations.summary`, filtered by both conversation ID and owner ID.
+Summary failures do not change or delay the customer reply. It reuses the
+existing LLM and server-side Supabase environment variables; no new credentials
+are needed. Apply `supabase/migrations/20260930_conversation_summary.sql`
+manually before expecting summaries to save.
 
 ## Two ways to trigger it
 
